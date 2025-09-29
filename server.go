@@ -1,7 +1,9 @@
+// server.go
 package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log"
 	"net/http"
@@ -88,6 +90,25 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 
 	// read RootCAs once
 	_rootCAs = RootCAs()
+	
+	// load CRLs once and start refresher
+	revoked.Store(loadLocalCRLs(Config.CRLDirs))
+	startCRLRefresher(Config.CRLDirs, Config.CRLInterval.Duration)
+
+	// HTTP endpoint to force refresh
+	http.HandleFunc("/refresh-crls", func(w http.ResponseWriter, r *http.Request) {
+		refreshCRLsNow(Config.CRLDirs)
+		w.Write([]byte("CRLs refreshed\n"))
+	})
+
+	// start HTTP server for CRL refresh endpoint
+	go func() {
+		addr := fmt.Sprintf(":%d", Config.MetricsPort)
+		log.Printf("CRL refresh endpoint running at http://localhost%s/refresh-crls", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			log.Printf("CRL refresh server error: %v", err)
+		}
+	}()
 
 	// initialize ingress rules only once
 	_ingressMap, _ingressRules = readIngressRules()
@@ -106,7 +127,7 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 		NumLogicalCores = 0
 	}
 
-	// initialize all particiapted providers
+	// initialize all participated providers
 	auth.Init(Config.Providers, Config.Verbose)
 
 	// initialize cmsauth module
@@ -122,6 +143,17 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				RootCAs: _rootCAs,
+				VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+					if len(verifiedChains) == 0 {
+						return fmt.Errorf("no verified chains")
+					}
+					leaf := verifiedChains[0][0]
+					crls := revoked.Load().(map[string]bool)
+					if crls[leaf.SerialNumber.String()] {
+						return fmt.Errorf("certificate revoked: %s", leaf.SerialNumber)
+					}
+					return nil
+				},
 			},
 		},
 	}
@@ -168,8 +200,9 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 		// Get CRIC records
 		go cric.UpdateCricRecords("id", Config.CricFile, Config.CricURL, Config.UpdateCricInterval, Config.CricVerbose)
 	}
-	// Get AIM records
+	// Get IAM records
 	go getIAMInfo()
 	// start OAuth server
 	oauthProxyServer()
 }
+

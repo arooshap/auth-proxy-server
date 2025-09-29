@@ -8,12 +8,25 @@ package main
 import (
 	"encoding/json"
 	"log"
-
+	"time"
+	"strings"
 	"github.com/shirou/gopsutil/load"
 	"github.com/shirou/gopsutil/net"
 	"github.com/shirou/gopsutil/process"
 )
+type Duration struct {
+    time.Duration
+}
 
+func (d *Duration) UnmarshalJSON(b []byte) error {
+    s := strings.Trim(string(b), `"`)
+    dur, err := time.ParseDuration(s)
+    if err != nil {
+        return err
+    }
+    d.Duration = dur
+    return nil
+}
 // Ingress part of server configuration
 type Ingress struct {
 	Path       string `json:"path"`        // url path to the service
@@ -29,6 +42,9 @@ type Configuration struct {
 	AuthTroublePort     int       `json:"auth_trouble_port"`      // port for /auth/trouble end-point
 	MetricsPort         int       `json:"metrics_port"`           // server metrics port number
 	RootCAs             []string  `json:"rootCAs"`                // server Root CAs paths
+
+    	CRLDirs             []string  `json:"CRLDirs"`     // list of CRL directories
+    	CRLInterval         Duration  `json:"CRLInterval"` // refresh interval
 	Base                string    `json:"base"`                   // base URL
 	StaticPage          string    `json:"static_page"`            // static file to use
 	LogFile             string    `json:"log_file"`               // server log file
