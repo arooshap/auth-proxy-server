@@ -3,7 +3,6 @@ package main
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"log"
 	"net/http"
@@ -92,15 +91,23 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 	_rootCAs = RootCAs()
 	
 	// load CRLs once and start refresher
-	revoked.Store(loadLocalCRLs(Config.CRLDirs))
-	startCRLRefresher(Config.CRLDirs, Config.CRLInterval.Duration)
+	revoked.Store(loadLocalCRLs(Config.CRLDirs, Config.CRLGlobs, Config.CRLQuarantine))
+	startCRLRefresher(Config.CRLDirs, Config.CRLGlobs, Config.CRLInterval, Config.CRLQuarantine)
 
-	// HTTP endpoint to force refresh
-	http.HandleFunc("/refresh-crls", func(w http.ResponseWriter, r *http.Request) {
-		refreshCRLsNow(Config.CRLDirs)
+	// manual refresh endpoint on a dedicated port
+	mux := http.NewServeMux()
+	mux.HandleFunc("/refresh-crls", func(w http.ResponseWriter, r *http.Request) {
+		refreshCRLsNow(Config.CRLDirs, Config.CRLGlobs, Config.CRLQuarantine)
 		w.Write([]byte("CRLs refreshed\n"))
 	})
 
+	go func() {
+		addr := fmt.Sprintf(":%d", Config.RefreshPort)
+		log.Printf("CRL refresh endpoint at http://localhost%s/refresh-crls", addr)
+		if err := http.ListenAndServe(addr, mux); err != nil {
+			log.Printf("CRL refresh server error: %v", err)
+		}
+	}()
 	// start HTTP server for CRL refresh endpoint
 	go func() {
 		addr := fmt.Sprintf(":%d", Config.MetricsPort)
@@ -143,17 +150,7 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				RootCAs: _rootCAs,
-				VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-					if len(verifiedChains) == 0 {
-						return fmt.Errorf("no verified chains")
-					}
-					leaf := verifiedChains[0][0]
-					crls := revoked.Load().(map[string]bool)
-					if crls[leaf.SerialNumber.String()] {
-						return fmt.Errorf("certificate revoked: %s", leaf.SerialNumber)
-					}
-					return nil
-				},
+				VerifyPeerCertificate: verifyPeerCertificate,
 			},
 		},
 	}
