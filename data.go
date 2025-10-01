@@ -88,8 +88,8 @@ type Configuration struct {
 	DebugAllowedIPs []string `json:"debug_allowed_ips"` // list of allowed IPs to view debug/profile info
 
         //configuration for crls.go
-  	CRLDirs       []string      `json:"crl_dirs"`       // directories containing CRL files
- 	CRLGlobs      []string      `json:"crl_globs"`      // filename patterns (optional, defaults provided)
+	CRLDirs       []string      `json:"crl_dirs"`       // directories containing CRL files
+	CRLGlobs      []string      `json:"crl_globs"`      // filename patterns (optional, defaults provided)
         CRLInterval   time.Duration `json:"crl_interval"`   // refresh interval, e.g. "6h"
         CRLQuarantine bool          `json:"crl_quarantine"` // true = quarantine bad CRLs, false = skip them
         RefreshPort   int           `json:"refresh_port"`   // separate HTTP port for /refresh-crls
