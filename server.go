@@ -102,7 +102,7 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 	})
 
 	go func() {
-		addr := fmt.Sprintf(":%d", Config.RefreshPort)
+		addr := fmt.Sprintf(":%d", Config.CRLPort)
 		log.Printf("CRL refresh endpoint at http://localhost%s/refresh-crls", addr)
 		if err := http.ListenAndServe(addr, mux); err != nil {
 			log.Printf("CRL refresh server error: %v", err)
