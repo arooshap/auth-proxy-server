@@ -143,7 +143,7 @@ func refreshCRLsNow(dirs, globs []string, quarantine bool) {
         return fmt.Errorf("no CRLs loaded from %v", dirs)
     }
 	revoked.Store(m)
-    log.Printf("[CRL] Refreshed %d revoked certs", len(crls))
+    log.Printf("[CRL] Refreshed %d revoked certs", len(m))
     return nil
 }
 
