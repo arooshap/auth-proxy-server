@@ -137,7 +137,7 @@ func startCRLRefresher(dirs, globs []string, interval time.Duration, quarantine 
 }
 
 // refreshCRLsNow forces an immediate reload.
-func refreshCRLsNow(dirs, globs []string, quarantine bool) {
+func refreshCRLsNow(dirs, globs []string, quarantine bool) error {
 	m := loadLocalCRLs(dirs, globs, quarantine)
     if len(m) == 0 {
         return fmt.Errorf("no CRLs loaded from %v", dirs)
