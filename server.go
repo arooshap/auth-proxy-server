@@ -94,13 +94,17 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 	revoked.Store(loadLocalCRLs(Config.CRLDirs, Config.CRLGlobs, Config.CRLQuarantine))
 	startCRLRefresher(Config.CRLDirs, Config.CRLGlobs, Config.CRLInterval, Config.CRLQuarantine)
 
-	// manual refresh endpoint on a dedicated port
+	// manual refresh endpoint on a dedicated port(CRLPort)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/refresh-crls", func(w http.ResponseWriter, r *http.Request) {
-		refreshCRLsNow(Config.CRLDirs, Config.CRLGlobs, Config.CRLQuarantine)
-		w.Write([]byte("CRLs refreshed\n"))
+	    if err := refreshCRLsNow(Config.CRLDirs, Config.CRLGlobs, Config.CRLQuarantine); err != nil {
+	        log.Printf("[CRL-ERROR] failed to refresh CRLs: %v", err)
+	        http.Error(w, fmt.Sprintf("Failed to refresh CRLs: %v\n", err), http.StatusInternalServerError)
+	        return
+	    }
+	    w.Write([]byte("CRLs refreshed successfully\n"))
 	})
-
+	// Run CRL refresh endpoint in the background
 	go func() {
 		addr := fmt.Sprintf(":%d", Config.CRLPort)
 		log.Printf("CRL refresh endpoint at http://localhost%s/refresh-crls", addr)
@@ -108,15 +112,6 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 			log.Printf("CRL refresh server error: %v", err)
 		}
 	}()
-	// start HTTP server for CRL refresh endpoint
-	go func() {
-		addr := fmt.Sprintf(":%d", Config.MetricsPort)
-		log.Printf("CRL refresh endpoint running at http://localhost%s/refresh-crls", addr)
-		if err := http.ListenAndServe(addr, nil); err != nil {
-			log.Printf("CRL refresh server error: %v", err)
-		}
-	}()
-
 	// initialize ingress rules only once
 	_ingressMap, _ingressRules = readIngressRules()
 
