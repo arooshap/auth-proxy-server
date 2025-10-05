@@ -139,8 +139,12 @@ func startCRLRefresher(dirs, globs []string, interval time.Duration, quarantine 
 // refreshCRLsNow forces an immediate reload.
 func refreshCRLsNow(dirs, globs []string, quarantine bool) {
 	m := loadLocalCRLs(dirs, globs, quarantine)
+    if len(m) == 0 {
+        return fmt.Errorf("no CRLs loaded from %v", dirs)
+    }
 	revoked.Store(m)
-	log.Printf("CRLs force-refreshed, %d revoked certs loaded", len(m))
+    log.Printf("[CRL] Refreshed %d revoked certs", len(crls))
+    return nil
 }
 
 
