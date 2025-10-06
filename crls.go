@@ -149,7 +149,7 @@ func refreshCRLsNow(dirs, globs []string, quarantine bool) error {
 
 
 // verifyPeerCertificate enforces CRL-based revocation for the leaf cert.
-func verifyPeerCertificate(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+func verifyPeerCertificateWithCRL(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 	if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
 		return fmt.Errorf("no verified chains")
 	}

@@ -1,52 +1,100 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-	"math/big"
-	"crypto/x509"
 )
 
-func TestCollectCRLFilesEmpty(t *testing.T) {
-	tmp := t.TempDir()
-	files := collectCRLFiles([]string{tmp}, []string{"*.crl"})
-	if len(files) != 0 {
-		t.Fatalf("expected 0 files, got %d", len(files))
+// helper to make a dummy certificate
+func makeDummyCert(t *testing.T) *x509.Certificate {
+	serial, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "test-cert"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
 	}
 }
 
-func TestLoadLocalCRLsSkipBad(t *testing.T) {
-	tmp := t.TempDir()
+// tests empty CRL directory
+func TestCollectCRLFilesEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	files := collectCRLFiles([]string{tmpDir}, []string{"*.crl"})
+	if len(files) != 0 {
+		t.Errorf("expected 0 files, got %d", len(files))
+	}
+}
 
-	// write a bogus file that looks like DER but isn't
-	if err := os.WriteFile(filepath.Join(tmp, "bad.crl"), []byte{0x01, 0x02, 0x03}, 0o644); err != nil {
+// tests loading invalid CRL file
+func TestLoadLocalCRLsSkipBad(t *testing.T) {
+	tmpDir := t.TempDir()
+	badFile := filepath.Join(tmpDir, "bad.crl")
+	if err := os.WriteFile(badFile, []byte("not a crl"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	m := loadLocalCRLs([]string{tmp}, []string{"*.crl"}, false) // skip mode
-	if len(m) != 0 {
-		t.Fatalf("expected 0 revoked entries, got %d", len(m))
+	out := loadLocalCRLs([]string{tmpDir}, []string{"*.crl"}, false)
+	if len(out) != 0 {
+		t.Errorf("expected 0 revoked certs, got %d", len(out))
 	}
 }
 
+// tests that the CRL refresher goroutine starts and runs
 func TestStartRefresher(t *testing.T) {
-	tmp := t.TempDir()
-	// No CRLs, should not panic
-	startCRLRefresher([]string{tmp}, []string{"*.crl"}, 50*time.Millisecond, false)
-	time.Sleep(120 * time.Millisecond)
+	tmpDir := t.TempDir()
+	done := make(chan struct{})
+	go func() {
+		startCRLRefresher([]string{tmpDir}, []string{"*.crl"}, 100*time.Millisecond, false)
+		time.Sleep(300 * time.Millisecond)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for refresher")
+	}
 }
 
-//test function to see if the revoke function works as expected
-func TestVerifyRevoked(t *testing.T) {
-    revoked := map[string]bool{
-        "12345": true,
-    }
-    cert := &x509.Certificate{
-        SerialNumber: big.NewInt(12345),
-    }
-    if _, ok := revoked[cert.SerialNumber.String()]; !ok {
-        t.Fatal("expected cert to be revoked")
-    }
+// tests VerifyPeerCertificateWithCRL behavior
+func TestVerifyPeerCertificateWithCRL(t *testing.T) {
+	cert := makeDummyCert(t)
+	chain := [][]*x509.Certificate{{cert}}
+
+	mockRevoked := map[string]bool{}
+	revoked.Store(mockRevoked)
+
+	// not revoked
+	err := verifyPeerCertificateWithCRL(nil, chain)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+
+	// revoked
+	mockRevoked[cert.SerialNumber.String()] = true
+	revoked.Store(mockRevoked)
+	err = verifyPeerCertificateWithCRL(nil, chain)
+	if err == nil {
+		t.Errorf("expected revocation error, got nil")
+	}
 }
+
+// tests atomic safety of revoked map
+func TestRevokedMapAtomicity(t *testing.T) {
+	m := map[string]bool{"1234": true}
+	revoked.Store(m)
+
+	val := revoked.Load().(map[string]bool)
+	if _, ok := val["1234"]; !ok {
+		t.Error("expected to find revoked serial 1234")
+	}
+}
+

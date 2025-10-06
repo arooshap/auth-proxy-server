@@ -145,7 +145,7 @@ func Server(config string, port, metricsPort int, logFile string, useX509, useX5
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				RootCAs: _rootCAs,
-				VerifyPeerCertificate: verifyPeerCertificate,
+				VerifyPeerCertificate: verifyPeerCertificateWithCRL,
 			},
 		},
 	}
