@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+ 	"net/http"
 )
 
 // revoked cert serials (swap with atomic.Value)
@@ -136,6 +137,26 @@ func startCRLRefresher(dirs, globs []string, interval time.Duration, quarantine 
 	}()
 }
 
+// RefreshCRLsHandler handles PUT /refresh-crls to reload CRLs manually.
+// It updates the revoked certificates map used for TLS verification.
+func RefreshCRLsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		w.Header().Set("Allow", http.MethodPut)
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := refreshCRLsNow(Config.CRLDirs, Config.CRLGlobs, Config.CRLQuarantine); err != nil {
+		log.Printf("[CRL] manual refresh failed: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to refresh CRLs: %v\n", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[CRL] manual refresh successful")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("CRLs refreshed successfully\n"))
+}
+
 // refreshCRLsNow forces an immediate reload.
 func refreshCRLsNow(dirs, globs []string, quarantine bool) error {
 	m := loadLocalCRLs(dirs, globs, quarantine)
@@ -146,7 +167,6 @@ func refreshCRLsNow(dirs, globs []string, quarantine bool) error {
     log.Printf("[CRL] Refreshed %d revoked certs", len(m))
     return nil
 }
-
 
 // verifyPeerCertificate enforces CRL-based revocation for the leaf cert.
 func verifyPeerCertificateWithCRL(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
