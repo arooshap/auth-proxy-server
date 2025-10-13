@@ -1,4 +1,36 @@
-// crls.go
+// crls.go - Go implementation of CRL (Certificate Revocation List) management for APS.
+// Copyright (c) 2025 - Aroosha Pervaiz
+//
+// This file implements logic to load, parse, and periodically refresh CRLs to validate x509 certificates/
+//
+// The core workflow is as follows:
+//
+// 1. CRL Loading:
+//    - The server reads all CRL files from configured directories.
+//    - File patterns (e.g. "*.crl", "*.[rR][0-9]") are configurable via the CRLGlobs option.
+//    - Each CRL is parsed using Go's crypto/x509 package, and revoked certificate serial numbers
+//      are extracted and stored in memory.
+//
+// 2. CRL Refreshing:
+//    - A background goroutine runs at a configurable interval (CRLInterval).
+//    - It reloads all CRLs from the configured directories and updates the in-memory map of revoked serials.
+//    - Optionally, the refresh can skip or quarantine corrupted CRL files based on the CRLQuarantine flag.
+//
+// 3. Manual Refresh via HTTP:
+//    - The `/refresh-crls` endpoint allows manual refresh of CRLs using an HTTP PUT request.
+//    - This endpoint triggers an immediate reload of all configured CRL directories.
+//    - It responds with either “CRLs refreshed successfully” or an error message.
+//
+// 4. Certificate Verification:
+//    - During client TLS handshake, the VerifyPeerCertificate callback checks
+//      whether the presented certificate’s serial number exists in the revoked list.
+//    - If the serial is found, the connection is rejected as “certificate revoked”.
+//
+// 5. Testing:
+//    - The CRL logic includes unit tests(in crls_test.go) that verify correct handling of valid and invalid CRLs,
+//      the periodic refresher, and the manual HTTP refresh endpoint.
+
+
 package main
 
 import (
