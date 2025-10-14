@@ -30,20 +30,19 @@
 //    - The CRL logic includes unit tests(in crls_test.go) that verify correct handling of valid and invalid CRLs,
 //      the periodic refresher, and the manual HTTP refresh endpoint.
 
-
 package main
 
 import (
-	"fmt"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
- 	"net/http"
 )
 
 // revoked cert serials (swap with atomic.Value)
@@ -82,7 +81,7 @@ func quarantineFile(path string) {
 }
 
 // parseCRLBytes decodes DER/PEM, validates freshness, and accumulates serials.
-func parseCRLBytes(data []byte, path string, out map[string]bool, now time.Time) error {
+func parseCRLBytes(data []byte, path string, out *map[string]bool, now time.Time) error {
 	// accept PEM-wrapped or raw DER
 	if strings.Contains(string(data), "-----BEGIN") {
 		for {
@@ -103,7 +102,7 @@ func parseCRLBytes(data []byte, path string, out map[string]bool, now time.Time)
 				continue
 			}
 			for _, rc := range crl.TBSCertList.RevokedCertificates {
-				out[rc.SerialNumber.String()] = true
+				(*out)[rc.SerialNumber.String()] = true
 			}
 		}
 		return nil
@@ -119,7 +118,7 @@ func parseCRLBytes(data []byte, path string, out map[string]bool, now time.Time)
 		return nil
 	}
 	for _, rc := range crl.TBSCertList.RevokedCertificates {
-		out[rc.SerialNumber.String()] = true
+		(*out)[rc.SerialNumber.String()] = true
 	}
 	return nil
 }
@@ -140,7 +139,7 @@ func loadLocalCRLs(dirs, globs []string, quarantine bool) map[string]bool {
 			log.Printf("Failed to read CRL %s: %v", f, err)
 			continue
 		}
-		if err := parseCRLBytes(data, f, out, now); err != nil {
+		if err := parseCRLBytes(data, f, &out, now); err != nil {
 			log.Printf("Failed to parse CRL %s: %v", f, err)
 			if quarantine {
 				quarantineFile(f)
@@ -192,12 +191,12 @@ func RefreshCRLsHandler(w http.ResponseWriter, r *http.Request) {
 // refreshCRLsNow forces an immediate reload.
 func refreshCRLsNow(dirs, globs []string, quarantine bool) error {
 	m := loadLocalCRLs(dirs, globs, quarantine)
-    if len(m) == 0 {
-        return fmt.Errorf("no CRLs loaded from %v", dirs)
-    }
+	if len(m) == 0 {
+		return fmt.Errorf("no CRLs loaded from %v", dirs)
+	}
 	revoked.Store(m)
-    log.Printf("[CRL] Refreshed %d revoked certs", len(m))
-    return nil
+	log.Printf("[CRL] Refreshed %d revoked certs", len(m))
+	return nil
 }
 
 // verifyPeerCertificate enforces CRL-based revocation for the leaf cert.
@@ -215,4 +214,3 @@ func verifyPeerCertificateWithCRL(rawCerts [][]byte, verifiedChains [][]*x509.Ce
 	}
 	return nil
 }
-
